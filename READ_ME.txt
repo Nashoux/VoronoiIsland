@@ -10,8 +10,8 @@ Warning : 	-Use \ for your path or //
 		-The "regenarate" is not implemented yet.
 		-Only one Island at a time.
 
-There is a little extra withe a Unity build with the fbx assets on an island !
-
+There is a little extra withe a Unity build with the fbx assets on an island ! : 
+https://drive.google.com/open?id=1VRlV-001IoKCoxgYJPNrYQVoUHwIE9J3
 
 
 
