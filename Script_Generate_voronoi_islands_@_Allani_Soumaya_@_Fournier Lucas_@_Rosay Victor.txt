@@ -1,0 +1,580 @@
+#test algo de sélection de Biome n°2 + annotations + nomenclature
+
+import maya.cmds as cmds
+import random
+from array import *
+import math
+
+#gridSize  -> défini la largeur et la hauteur de la grille en nombre de cellules
+#numVoronoi -> Le nombre de voronoï est égal au carré de la largeur de la grille
+
+
+#waterLevel = 15 -> défini le niveau des oceans (% calculé sur 20; min = 0, max = 15 )
+#mountainLevel = 15 ->  défini le niveau des terres (% calculé sur 20; min = 0, max = 15 )
+#forestQuantity = 10 ->  défini le niveau des forêts
+#houseQuantity = 10 ->  défini le niveau des maisons
+
+#mountainHigh = 1 ->  défini le niveau des zones montagneuses par rapport à la mer
+#plaineHigh = 2 -> défini le niveau des plaines par rapport à la mer
+
+
+
+    
+#fonction pour importer et déplacer
+def ImportFile(path, minObj, maxObj, m_name, m_GroupName, size, up) :
+    
+    cmds.select( clear=True )
+    numbObj = random.randint(minObj, maxObj)
+    
+    
+    if minObj == maxObj :
+        numbObj = minObj
+    
+    importFile = cmds.file(path, i=True, groupReference=True, groupName = m_name)
+    
+    cmds.group(m_name, name = m_GroupName)
+    
+    for i in range(numbObj) :
+    
+        cmds.select(m_name)
+        cmds.ls(sl = True )
+        
+        cmds.scale(size,size,size)
+        xr = random.uniform(0.3, -0.3)
+        xz = random.uniform(0.3, -0.3)
+
+        cmds.move(xr, up, xz)
+        
+        
+        #cmds.move (0,0.165,0)
+         
+        cmds.rotate(0,random.randint(0,360),0, relative = True) 
+        #cmds.parent("trees", "forest")
+        newOne = cmds.duplicate(m_name)
+        
+    return(m_GroupName) #Retourner le nom du groupe pour être certain de sélectionner le bon !
+
+        
+def PositionFile(object, fileGroup) :
+    cmds.select( clear=True )
+    cmds.select(object+".f[0]")
+    cmds.move(0, 0, 0, relative = True )
+    maya.cmds.setToolTo('Move')
+    pos = cmds.manipMoveContext('Move', query=True, position=True) 
+    
+    # récupère l'objet à positionner sur la face
+    target = cmds.select(fileGroup)
+    target = cmds.ls(selection=True)
+    
+    # positionne l'objet sur la face avec une position aléatoire
+    cmds.move(pos[0], pos[1], pos[2], target, relative = True)
+    
+    #print(cmds.polyEvaluate(worldArea=True))
+        
+
+############################################################################################
+# fonctions qui créer les shaders de terrain
+
+def desert_material() : # Création du shaders de type sable
+    
+    myShader = cmds.shadingNode('phong', asShader=True, n='desert')
+    mySG = cmds.sets(renderable=True, noSurfaceShader=True, empty=True)
+    cmds.connectAttr(myShader+".outColor", mySG+".surfaceShader");
+    cmds.setAttr(myShader+'.color', 0.7, 0.7, 0, type="double3")
+    
+    return(mySG)
+    
+def oceanic_material() : # Création du shaders de type ocean
+    
+    myShader = cmds.shadingNode('phong', asShader=True, n='oceanic')
+    mySG = cmds.sets(renderable=True, noSurfaceShader=True, empty=True)
+    cmds.connectAttr(myShader+".outColor", mySG+".surfaceShader");
+    cmds.setAttr(myShader+'.color', 0, 0, 1, type="double3")
+    
+    return(mySG)
+
+def mountain_material() : # Création du shaders de type montagne
+    
+    myShader = cmds.shadingNode('phong', asShader=True, n='mountain')
+    mySG = cmds.sets(renderable=True, noSurfaceShader=True, empty=True)
+    cmds.connectAttr(myShader+".outColor", mySG+".surfaceShader");
+    cmds.setAttr(myShader+'.color', 1, 1, 1, type="double3")
+    return(mySG)
+
+def Custom_material( r, g,  b) : # Création du matériaux custom pour le debug
+    
+    myShader = cmds.shadingNode('phong', asShader=True, n='Custom')
+    mySG = cmds.sets(renderable=True, noSurfaceShader=True, empty=True)
+    cmds.connectAttr(myShader+".outColor", mySG+".surfaceShader");
+    cmds.setAttr(myShader+'.color', r, g, b, type="double3")
+    return(mySG)
+
+# Variables pour automatiser la création des matériaux
+M_desert = desert_material()
+M_oceanic = oceanic_material()
+M_mountain = mountain_material()
+M_plaine = Custom_material(0.1,0.8,0.2)
+
+# fonction qui assigne un matérial à un objet
+def set_material(s, mat) : 
+    cmds.sets(s, forceElement = mat)
+
+##################################################################################################
+
+# Voronoï 3D par Ocean Tian Qiu (https://oceanqiu.wordpress.com/author/oceanqiu/)
+
+def voroShatter(object, num):
+    # Evaluation des points de la bounding box [minX, minY, minZ, maxX, maxY, maxZ]
+    bbPoints = cmds.exactWorldBoundingBox(object) 
+    #print bbPoints
+     
+    # Place des points aléatoirement à l'intérieur de la bounding box
+    numPoints = num
+    voroX = [random.uniform(bbPoints[0], bbPoints[3]) for i in range(numPoints)]
+    voroY = [random.uniform(bbPoints[1], bbPoints[4]) for i in range(numPoints)]
+    voroZ = [random.uniform(bbPoints[2], bbPoints[5]) for i in range(numPoints)]
+    voroPoints = zip(voroX, voroY, voroZ)
+     
+    # Création d'un groupe pour les futures cellules
+    cmds.setAttr(object+'.visibility',0)    
+    chunksGrp = cmds.group( em=True, name = 'chunks_1_'+object )
+ 
+    for voroFrom in voroPoints:
+        # Duplication de l'objet en vue de la découpe
+        workingObj = cmds.duplicate(object)
+        cmds.setAttr(str(workingObj[0])+'.visibility',1)
+        cmds.parent(workingObj, chunksGrp)
+         
+        for voroTo in voroPoints: # parcour des points stockés
+            if voroFrom != voroTo:
+                
+                # Calcule de la perpendiculaire de la ligne bissectrice
+                aim = [(vec1-vec2) for (vec1,vec2) in zip(voroFrom,voroTo)]
+                voroCenter = [(vec1 + vec2)/2 for (vec1,vec2) in zip(voroTo,voroFrom)]
+                planeAngle = cmds.angleBetween( euler=True, v1=[0,0,1], v2=aim )
+                # découpe de l'objet
+                cmds.polyCut(workingObj[0], df=True, cutPlaneCenter = voroCenter, cutPlaneRotate = planeAngle)
+                
+        cmds.xform(workingObj, cp=True)
+        cmds.progressBar(progressControl, edit=True, step=1)
+    cmds.delete(object)
+    return(chunksGrp)
+    
+    
+
+
+#####################################################################################
+
+# Création des tableaux qui serviront à déterminer les biomes 
+def ArrayBiome () :
+    global l_map
+    l_map = [] #Cette liste contiendra ma map en 2D
+    for i in range(gridSize):
+        l_map.append([1] * gridSize)
+        
+    for i in range(gridSize):
+        for y in range(gridSize):
+            l_map[i][y] =  -1;
+
+
+# Map de Voronoi
+def ArrayVoronoi () :
+    global objMap
+    objMap = [] # Cette liste contiendra la map en 2D
+    object = cmds.ls('myPlane*', tr=True)
+    cmds.select(object)
+    
+    for i in range(gridSize):
+        objMap.append([object[0]] * gridSize)
+    
+    for nam in range(numVoronoi):
+        for i in range(numVoronoi-1):
+        	if cmds.xform(object[i],q=1,ws=1,rp=1)[2] < cmds.xform(object[i+1],q=1,ws=1,rp=1)[2]:
+        		trans = object[i]
+        		object[i] = object[i+1]
+        		object[i+1]=trans
+    
+    for i in range(gridSize):
+        for y in range(gridSize):
+            objMap[i][y] =  object[gridSize*y+i];
+            
+    for nam in range(gridSize):
+        for i in range(gridSize-1):
+        	for y in range(gridSize-1):
+        		if cmds.xform(objMap[i][y],q=1,ws=1,rp=1)[0] < cmds.xform(objMap[i+1][y],q=1,ws=1,rp=1)[0]:
+        			trans = objMap[i][y]
+        			objMap[i][y] = objMap[i+1][y]
+        			objMap[i+1][y]=trans
+
+#####################################################################################
+
+# algo de sélection de Biome n°2
+
+def choose_biome() :
+    print(gridSize);
+    for i in range(gridSize) :
+        for y in range(gridSize) :
+            isItIsle = False
+            if i == 2 :            
+                z = 2
+                for z in range (i) :
+                    if l_map[z][y] == 0 :
+                        isItIsle = False
+                    elif l_map[z][y] >= 1 and l_map[z-1][y] == 0 :
+                        isItIsle = True
+                    elif l_map[z][y] == 1 and l_map[z-1][y] >= 1 :
+                        isItIsle = False
+                       
+            #set_material(objMap[y][i],Custom_material(i/8,y/8,0.1) );
+            if i == 0 or i == gridSize-1 or y == 0 or y == gridSize-1 :
+                set_material(objMap[y][i],M_oceanic)
+                l_map[i][y] = 0             
+            elif l_map[i][y-1] == 1 :
+                if l_map[i-1][y] == 1 :
+                    set_material(objMap[y][i],M_plaine)
+                    l_map[i][y] = 2
+                elif l_map[i-1][y] == 2 :
+                    biome = random.randint(1,2)                   
+                    if biome == 2:
+                        set_material(objMap[y][i],M_plaine)
+                        l_map[i][y] = 2
+                    else :
+                        set_material(objMap[y][i],M_desert)
+                        l_map[i][y] = 1
+                
+            elif isItIsle == False :
+                biome = random.randint(0,21)
+                if biome <= waterLevel :
+                    set_material(objMap[y][i],M_oceanic)
+                    l_map[i][y] = 0
+                else :
+                    set_material(objMap[y][i],M_desert)
+                    l_map[i][y] = 1
+            elif isItIsle == True :
+                if i == gridSize-2 :
+                    if l_map[i][y-1] >= 2 :
+                        set_material(objMap[y][i],M_desert)
+                        l_map[i][y] = 1
+                    else :
+                        set_material(objMap[y][i],M_oceanic)
+                        l_map[i][y] = 0
+                elif  l_map[i-1][y] == 1 :
+                    set_material(objMap[y][i],M_plaine)
+                    l_map[i][y] = 2
+                elif l_map[i-2][y] >= 2 and l_map[i-1][y] == 1:
+                    set_material(objMap[y][i],M_oceanic)
+                    l_map[i][y] = 0
+                elif l_map[i-1][y] >= 2 :
+                    biome = random.randint(0,20)
+                    if biome <= 1 :
+                        set_material(objMap[y][i],M_desert)
+                        l_map[i][y] = 1
+                    elif biome <= (20-mountainLevel) :
+                        set_material(objMap[y][i],M_plaine)
+                        l_map[i][y] = 2
+                    else :     
+                        set_material(objMap[y][i],M_mountain)
+                        l_map[i][y] = 3
+            if l_map[i][y] == -1 :
+                biome = random.randint(0,20)
+                if biome <= mountainLevel :
+                    set_material(objMap[y][i],M_mountain)
+                    l_map[i][y] = 3
+                else :
+                    set_material(objMap[y][i],M_desert)
+                    l_map[i][y] = 1
+    
+    for i in range(gridSize) :
+        for y in range(gridSize) :
+            if l_map[i][y] == 1 :
+                if l_map[i][y-1] >= 2  and l_map[i-1][y] >= 2 :
+                    set_material(objMap[y][i],M_plaine)
+                    l_map[i][y] = 2
+                if l_map[i][y-1] >= 2 and l_map[i][y+1] >= 2 :
+                    set_material(objMap[y][i],M_plaine)
+                    l_map[i][y] = 2    
+                if l_map[i+1][y] >= 2 and l_map[i-1][y] >= 2 :
+                    set_material(objMap[y][i],M_plaine)
+                    l_map[i][y] = 2    
+                if  l_map[i+1][y] >= 2 and l_map[i-1][y] >= 2 :
+                    set_material(objMap[y][i],M_plaine)
+                    l_map[i][y] = 2    
+#####################################################################################
+
+
+def AddObjectToBiome() :
+    
+    global listObjectBiome
+    listObjectBiome = [] #Tout les objets ajoutés au biomes
+    
+    for i in range(gridSize) :
+        for y in range(gridSize) :
+            if l_map[i][y] == 0 :
+                rand = random.randint(0,30)
+                if rand <= 2 :
+                    newGroup = ImportFile(boatFile, 1, 1,"boat","boats"+str((gridSize-1)*i+y)+str(i), 10, 0.025)
+                    PositionFile(objMap[y][i], newGroup)                   
+                    
+                    
+                    cmds.parent("boats"+str((gridSize-1)*i+y)+str(i),world = True)
+                    
+                    listObjectBiome.append(newGroup)
+                    cmds.select(newGroup)
+                    
+                    
+                    
+                    cmds.parent("boats"+str((gridSize-1)*i+y)+str(i),"boat1")
+            
+            if l_map[i][y] == 2 : # si c'est une plaine
+                rand = random.randint(0,20)
+                
+                if rand <= forestQuantity : #si c'est une foret dans la plaine
+                    newGroup = ImportFile(treeFile, 5, 10, "tree", "forest"+str((gridSize-1)*i+y), 10, 0.165)
+                    
+                    PositionFile(objMap[y][i], newGroup)
+                    
+                    #cmds.parent("tree1",world = True)
+                    
+                    listObjectBiome.append(newGroup)
+                    cmds.select(newGroup)
+                    
+                    
+                    
+                    #cmds.parent("forest"+str((gridSize-1)*i+y),"tree3")
+                    
+                    
+                if rand >= 20-houseQuantity : # si c'est une maison pour la plaine
+                    rand = random.randint(0,20)
+                    if rand >4 :
+                        
+                        
+                        newGroup = ImportFile(houseFile, 1, 1,"house","houses"+str((gridSize-1)*i+y), 0.01,0.065)
+                        PositionFile(objMap[y][i], newGroup)                   
+                        
+                        
+                        cmds.parent("houses"+str((gridSize-1)*i+y),world = True)
+                        
+                        listObjectBiome.append(newGroup)
+                        cmds.select(newGroup)
+                        
+                        
+                        
+                        cmds.parent("houses"+str((gridSize-1)*i+y),"house1")
+                        
+                    else :
+                        print("templeFile")
+                        
+                        newGroup = ImportFile(templeFile, 1, 1,"temple","temples"+str((gridSize-1)*i+y), 10,0.165)
+                        PositionFile(objMap[y][i], newGroup)                   
+                        
+                        
+                        cmds.parent("temples"+str((gridSize-1)*i+y),world = True)
+                        
+                        listObjectBiome.append(newGroup)
+                        cmds.select(newGroup)
+                        
+                        
+                        
+                        cmds.parent("temples"+str((gridSize-1)*i+y),"temple1")
+
+
+#####################################################################################
+# Génération des niveaux de terrain en fonction du biome
+
+# Fonction pour extruder les faces de notre plateau de cellules vorono?
+def extrudeFaces_height(obj, minH, maxH, minScaleX, maxScaleX, minScaleY, maxScaleY):
+
+        height = random.uniform(minH, maxH)
+        scaleX = random.uniform(minScaleX, maxScaleX)
+        scaleY = random.uniform(minScaleY, maxScaleY)
+        cmds.polyExtrudeFacet( obj+'.f[0]', obj+'.f[0]', kft=False, ltz = height, ls=(scaleX, scaleY, 0))
+        
+# génération des niveaux en fonction des information des biomes
+
+def set_height_map() :
+    
+    for i in range(gridSize) :
+        for y in range(gridSize) :
+            
+            
+            #if l_map[i][y] == 0 : # oceans
+                #do nothing
+                
+            if l_map[i][y] == 1 : # desert
+                extrudeFaces_height(objMap[y][i], .1, .15, 1, 1, 1, 1)
+                
+            if l_map[i][y] == 2 : # plaines
+                extrudeFaces_height(objMap[y][i], .1*plaineHigh, .15*plaineHigh, 1, 1, 1, 1)
+                
+            if l_map[i][y] == 3 : # montagnes
+                extrudeFaces_height(objMap[y][i], (.13*mountainHigh)+(plaineHigh*0.09), (.22*mountainHigh)+(plaineHigh*0.12), .5, .8, .5, .8)
+
+
+#REGENERATE###########################################################
+
+
+# Fonction pour replacer les faces de notre plateau de cellules vorono?
+def moveFaces_height(obj, minH, maxH, minScaleX, maxScaleX, minScaleY, maxScaleY):
+
+        height = random.uniform(minH, maxH)
+        scaleX = random.uniform(minScaleX, maxScaleX)
+        scaleY = random.uniform(minScaleY, maxScaleY)
+        if cmds.objExists(obj+'.f[1]') :
+            cmds.select(obj+'.f[0]')
+            cmds.move(height,y = True, r = False,ws = True)
+            cmds.scale(scaleX,1,scaleY)
+            cmds.select(obj+'.f[1]')
+            cmds.move(0,y = True, r = False,ws = True)
+            cmds.scale(1,1,1)
+        else :
+            cmds.polyExtrudeFacet( obj+'.f[0]', obj+'.f[0]', kft=False, ltz = height, ls=(1, 1, 0))
+            cmds.select(obj+'.f[0]')
+            cmds.move(height,y = True, r = False,ws = True)
+            cmds.scale(scaleX,1,scaleY)
+            cmds.select(obj+'.f[1]')
+            cmds.move(0,y = True, r = False,ws = True)
+            cmds.scale(1,1,1)
+        
+# génération des niveaux en fonction des information des biomes
+
+def Regenerate_set_height_map() :
+    
+    for i in range(gridSize) :
+        for y in range(gridSize) :
+                        
+            if l_map[i][y] == 0 : # oceans
+                moveFaces_height(objMap[y][i], .001, .001, 1, 1, 1, 1)
+                
+            if l_map[i][y] == 1 : # desert
+                moveFaces_height(objMap[y][i], .1, .15, 1, 1, 1, 1)
+                
+            if l_map[i][y] == 2 : # plaines
+                moveFaces_height(objMap[y][i], .1*plaineHigh, .15*plaineHigh, 1, 1, 1, 1)
+                
+            if l_map[i][y] == 3 : # montagnes
+                moveFaces_height(objMap[y][i], (.13*mountainHigh)+(plaineHigh*0.09), (.22*mountainHigh)+(plaineHigh*0.12), .5, .8, .5, .8)
+
+#####################################################################################
+
+#Initialisation des variables récupérés de l'interface
+def InitVar () :
+    
+    global forestNumber
+    forestNumber = 0
+    
+    global gridSize
+    gridSize = cmds.intSliderGrp(gridSizeField, q = True, value = True) # défini la largeur et la hauteur de la grille en nombre de cellules
+    global numVoronoi
+    numVoronoi = gridSize * gridSize # Le nombre de voronoï est égal au carré de la largeur de la grille
+    
+    global waterLevel
+    waterLevel = cmds.intSliderGrp(waterLevelField, q = True, value = True) # défini le niveau des oceans (% calculé sur 20; min = 0, max = 15 )
+    global mountainLevel
+    mountainLevel = cmds.intSliderGrp(mountainLevelField, q = True, value = True) # défini le niveau des terres (% calculé sur 20; min = 0, max = 15 )
+    global forestQuantity
+    forestQuantity = cmds.intSliderGrp(forestQuantityField, q = True, value = True) # défini le niveau des forêts
+    global houseQuantity
+    houseQuantity = cmds.intSliderGrp(houseQuantityField, q = True, value = True) # défini le niveau des maisons
+    
+    global mountainHigh
+    mountainHigh = cmds.floatSliderGrp(mountainHighField, q = True, value = True) # défini le niveau des zones montagneuses par rapport à la mer
+    global plaineHigh
+    plaineHigh = cmds.floatSliderGrp(plaineHighField, q = True, value = True)# défini le niveau des plaines par rapport à la mer
+    
+    global boatFile
+    boatFile = cmds.textFieldGrp(directoryFileField, q = True, tx = True)+ "\\boat.fbx"
+    global treeFile
+    treeFile = cmds.textFieldGrp(directoryFileField, q = True, tx = True)+"\\tree.fbx"
+    global houseFile
+    houseFile = cmds.textFieldGrp(directoryFileField, q = True, tx = True)+"\\house.fbx"
+    global templeFile
+    templeFile = cmds.textFieldGrp(directoryFileField, q = True, tx = True)+"\\temple.fbx"
+    
+    
+
+def ReGenerate () :
+    
+    
+    ArrayBiome ()
+    choose_biome()
+    Regenerate_set_height_map()
+    
+    
+    
+        
+#Fonction qui génère les iles
+def Generate () :
+    
+    #initialisation
+    InitVar()
+    
+    taille = gridSize*gridSize +20
+    
+    cmds.window(title = "Progress : Generate voronoi islands @ Allani Soumaya @ Fournier Lucas @ Rosay Victor")
+    cmds.columnLayout()
+    global progressControl 
+    progressControl = cmds.progressBar(maxValue=taille, width=300)    
+    cmds.showWindow()
+    
+    # création d'un plane
+    cmds.polyPlane(n='myPlane', sx=1, sy=1, w = 10, h = 10)
+    object = cmds.ls(sl=True)
+
+    # génération du Voronoi
+    for obj in object:        
+        map = voroShatter(obj, numVoronoi)
+        
+    
+    #Map pour faire les biomes
+    ArrayBiome ()
+    ArrayVoronoi ()
+    
+    cmds.progressBar(progressControl, edit=True, step=2)
+    
+    print ('biome : \n')
+    # génération des biomes
+    choose_biome()
+    cmds.progressBar(progressControl, edit=True, step=3)
+    set_height_map()
+    cmds.progressBar(progressControl, edit=True, step=5)
+    AddObjectToBiome() 
+    cmds.progressBar(progressControl, edit=True, step=10)
+
+
+
+
+#ImportFile(boatFile, 5, 10, "boat", "boats")
+#ImportFile(treeFile, 5, 10, "tree", "forest")
+
+#interface
+global forestNumber
+forestNumber = 0
+#interfaces
+cmds.window(title = "Generate voronoi islands @ Allani Soumaya @ Fournier Lucas @ Rosay Victor")
+cmds.columnLayout()
+
+gridSizeField = cmds.intSliderGrp(label = "Taille de la grille : ",f = True, min = 8, max = 16, s = 1, value = 12)
+waterLevelField = cmds.intSliderGrp(label = "Niveau de la mer : ",f = True, min = 0, max = 18, s = 1, value = 14)
+mountainLevelField = cmds.intSliderGrp(label = "Quantité de montagne : ",f = True, min = 0, max = 18, s = 1, value = 14)
+forestQuantityField = cmds.intSliderGrp(label = "Quantité de foret : ",f = True, min = 0, max = 10, s = 1, value = 7)
+houseQuantityField = cmds.intSliderGrp(label = "Quantité de maisons : ",f = True, min = 0, max = 10, s = 1, value = 4)
+
+mountainHighField = cmds.floatSliderGrp(label = "Hauteur des montagnes : ",f = True, min = 1, max = 5, s = 0.5, value = 3)
+plaineHighField = cmds.floatSliderGrp(label = "Hauteur des plaines : ",f = True, min = 1, max = 5, s = 0.5, value = 2)
+
+directoryFileField = cmds.textFieldGrp(label = "Dossier d objet", tx = "D:\\Document\\ATI\\fbx")
+
+
+
+
+cmds.button(label = "Generation", c='Generate()')
+cmds.button(label = "Regenerer les biomes", c='ReGenerate()')
+
+cmds.showWindow()
+
+
+
+    
+
+
+
